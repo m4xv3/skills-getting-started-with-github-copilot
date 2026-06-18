@@ -12,6 +12,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      // Reset activity select dropdown (keep placeholder)
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -20,20 +22,86 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const spotsLeft = details.max_participants - details.participants.length;
 
+        // Build participants HTML with remove buttons
+        const participantsHtml =
+          details.participants && details.participants.length > 0
+            ? `<ul class="participants-list">${details.participants
+                .map(
+                  (p) =>
+                    `<li><span class="participant-email">${p}</span><button class="remove-btn" aria-label="Remove ${p}" data-email="${p}">✖</button></li>`
+                )
+                .join("")}</ul>`
+            : `<p class="no-participants">No participants yet</p>`;
+
         activityCard.innerHTML = `
           <h4>${name}</h4>
           <p>${details.description}</p>
           <p><strong>Schedule:</strong> ${details.schedule}</p>
-          <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          <p class="availability"><strong>Availability:</strong> ${spotsLeft} spots left</p>
           <div class="participants-section">
             <h5>Participants (${details.participants.length})</h5>
-            ${
-              details.participants && details.participants.length > 0
-                ? `<ul class="participants-list">${details.participants.map(p => `<li>${p}</li>`).join('')}</ul>`
-                : `<p class="no-participants">No participants yet</p>`
-            }
+            ${participantsHtml}
           </div>
         `;
+
+        // attach activity name for later reference
+        activityCard.dataset.activity = name;
+
+        // Delegate remove button clicks
+        activityCard.addEventListener("click", async (e) => {
+          if (!e.target.matches(".remove-btn")) return;
+
+          const email = e.target.dataset.email;
+          const activityName = activityCard.dataset.activity;
+
+          try {
+            const res = await fetch(
+              `/activities/${encodeURIComponent(activityName)}/participants?email=${encodeURIComponent(email)}`,
+              { method: "DELETE" }
+            );
+
+            const data = await res.json();
+
+            if (res.ok) {
+              // Re-render participants section using returned participants array
+              const participantsSection = activityCard.querySelector(".participants-section");
+              if (data.participants && data.participants.length > 0) {
+                participantsSection.innerHTML = `
+                  <h5>Participants (${data.participants.length})</h5>
+                  <ul class="participants-list">
+                    ${data.participants
+                      .map(
+                        (p) =>
+                          `<li><span class="participant-email">${p}</span><button class="remove-btn" aria-label="Remove ${p}" data-email="${p}">✖</button></li>`
+                      )
+                      .join("")}
+                  </ul>
+                `;
+              } else {
+                participantsSection.innerHTML = `<h5>Participants (0)</h5><p class="no-participants">No participants yet</p>`;
+              }
+
+              // Update availability display
+              const availabilityP = activityCard.querySelector(".availability");
+              if (availabilityP) {
+                const max = details.max_participants;
+                const spotsLeftNew = max - (data.participants ? data.participants.length : 0);
+                availabilityP.innerHTML = `<strong>Availability:</strong> ${spotsLeftNew} spots left`;
+              }
+
+              messageDiv.textContent = data.message;
+              messageDiv.className = "success";
+              messageDiv.classList.remove("hidden");
+              setTimeout(() => messageDiv.classList.add("hidden"), 5000);
+            } else {
+              messageDiv.textContent = data.detail || "An error occurred";
+              messageDiv.className = "error";
+              messageDiv.classList.remove("hidden");
+            }
+          } catch (err) {
+            console.error("Error removing participant:", err);
+          }
+        });
 
         activitiesList.appendChild(activityCard);
 
